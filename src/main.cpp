@@ -102,8 +102,26 @@ int main() {
           
           bool too_close = false;
           
+          // determine if shifting is available, be optimistic and initialize to true
+          bool left_shift_avail = true;
+          bool right_shift_avail = true;
+          int shift_pause_count = 0;
+          
+          // get rid of any impossible lane shifts based on the current lane
+          if (lane == 0) {
+            left_shift_avail = false;
+          } else if (lane == 2) {
+            right_shift_avail = false;
+          } else if (shift_pause_count > 0) {
+            shift_pause_count -= 1;
+            left_shift_avail = false;
+            right_shift_avail = false;
+          }
+          
           for (int i = 0; i < sensor_fusion.size(); i++) {
             float d = sensor_fusion[i][6];
+            
+            // if they are in our lane
             if (d < (2 + 4 * lane + 2) && d > ( 2 + 4 * lane - 2) ) {
               double vx = sensor_fusion[i][3];
               double vy = sensor_fusion[i][4];
@@ -114,18 +132,45 @@ int main() {
               
               if ((check_car_s > car_s) && ((check_car_s - car_s) < 30)) {
                 too_close = true;
-                
-                if (lane > 0) {
-                  lane = 0;
-                }
-                
-                
+              }
+            } 
+            // if shifting left is still possible then see if this car changes that
+            else if (left_shift_avail && d < (2 + 4 * (lane - 1) + 2) && d > ( 2 + 4 * (lane - 1) - 2)) {
+              double vx = sensor_fusion[i][3];
+              double vy = sensor_fusion[i][4];
+              double check_speed = sqrt( vx*vx + vy*vy );
+              double check_car_s = sensor_fusion[i][5];
+              
+              check_car_s += ((double)prev_size * .02* check_speed);
+              
+              if ((abs(check_car_s - car_s) < 30)) {
+                left_shift_avail = false;
+              }
+              
+            }
+            // if shifting right is still available then see if this car changes that
+            else if (right_shift_avail && d < (2 + 4 * (lane + 1) + 2) && d > ( 2 + 4 * (lane + 1) - 2)) {
+              double vx = sensor_fusion[i][3];
+              double vy = sensor_fusion[i][4];
+              double check_speed = sqrt( vx*vx + vy*vy );
+              double check_car_s = sensor_fusion[i][5];
+              
+              check_car_s += ((double)prev_size * .02* check_speed);
+              
+              if ((abs(check_car_s - car_s) < 30)) {
+                right_shift_avail = false;
               }
             }
           }
           
-          if (too_close) {
-            ref_vel -= .224;
+          if (too_close && left_shift_avail) {
+            lane -= 1; // pass this fool on the left
+            shift_pause_count = 10; //wait 10 steps before shifting again
+          } else if (too_close && right_shift_avail) {
+            lane += 1; // pass this fool on the right
+            shift_pause_count = 10; //wait 10 steps before shifting again
+          } else if (too_close) {
+            ref_vel -= .224; // slow down for this fool
           } else if (ref_vel < 49.5) {
             ref_vel += .224;
           }
